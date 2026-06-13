@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gamble 3D - Bot Edition (GitHub Pages)</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background-color: #0b0b16;
+            color: #fff;
+            user-select: none;
+        }
+        #ui-lobby {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(27, 27, 50, 0.95);
+            padding: 30px;
+            border-radius: 16px;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.7);
+            text-align: center;
+            width: 90%; max-width: 400px;
+            z-index: 100;
+        }
+        input, button {
+            width: 100%; padding: 14px; margin: 10px 0;
+            border-radius: 8px; border: 2px solid #2d2d44;
+            font-size: 16px; box-sizing: border-box; font-weight: bold;
+        }
+        input { background: #0b0b16; color: #fff; text-align: center; }
+        button { background: #ff3366; color: white; border: none; cursor: pointer; text-transform: uppercase; }
+        button:hover { background: #ff5588; }
+        
+        /* HUD Superior */
+        #ui-juego {
+            display: none;
+            position: absolute;
+            top: 20px; left: 20px;
+            background: rgba(11, 11, 22, 0.85);
+            padding: 15px 25px; border-radius: 12px;
+            border: 1px solid #2d2d44; pointer-events: none;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        .valor { color: #ffe066; font-weight: bold; }
+
+        /* Controles de Apuestas en la Mesa */
+        #ui-mesa-apuestas {
+            display: none;
+            position: absolute;
+            bottom: 30px; left: 50%;
+            transform: translateX(-50%);
+            background: rgba(27, 27, 50, 0.9);
+            padding: 20px; border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            text-align: center; width: 90%; max-width: 420px;
+        }
+        .zona-dados { font-size: 60px; color: #ff3366; margin: 5px 0; }
+        
+        #btn-fullscreen {
+            position: absolute; top: 20px; right: 20px;
+            width: auto; background: #2d2d44; font-size: 12px; padding: 8px 15px; margin: 0;
+        }
+        #instrucciones {
+            position: absolute; bottom: 20px; left: 20px;
+            font-size: 12px; color: #888; background: rgba(0,0,0,0.5); padding: 8px; border-radius: 4px;
+        }
+        .marcador-bots {
+            margin-top: 5px;
+            font-size: 12px;
+            color: #aaa;
+            border-top: 1px solid #333;
+            padding-top: 5px;
+        }
+    </style>
+    <!-- Librería de Gráficos 3D -->
+    <script src="https://cloudflare.com"></script>
+</head>
+<body>
+
+    <button id="btn-fullscreen">📺 PANTALLA COMPLETA</button>
+
+    <!-- MENÚ / LOBBY INICIAL -->
+    <div id="ui-lobby">
+        <h1 style="color: #ff3366; margin: 0 0 10px 0;">🎰 CASINO 3D VS BOTS</h1>
+        <p style="color: #aaa; font-size: 14px; margin: 0 0 20px 0;">Muévete en 3D, acércate a la mesa central y desafía a los bots apostando tus dados.</p>
+        <input type="text" id="input-nickname" placeholder="Tu Nombre / Nickname" value="Jugador1">
+        <button id="btn-entrar">Empezar Partida</button>
+    </div>
+
+    <!-- HUD SUPERIOR -->
+    <div id="ui-juego">
+        <div>TUS FICHAS: <span id="hud-fichas" style="color:#00ffcc;" class="valor">100</span></div>
+        <div>BOTE ACUMULADO: <span id="hud-bote" class="valor">0</span></div>
+        <div id="hud-turno" style="color: #ff3366; font-weight: bold; margin-top: 5px;">Turno: Inicializando...</div>
+        
+        <!-- Estado financiero de tus oponentes IA -->
+        <div class="marcador-bots" id="hud-bots-info">
+            🤖 Bot Alfredo: 100 <br>
+            🤖 Bot Carlota: 100
+        </div>
+    </div>
+
+    <!-- MENÚ DE MESA DE APUESTAS -->
+    <div id="ui-mesa-apuestas">
+        <div style="font-weight: bold; color: #00ffcc; margin-bottom: 5px;">MESA DE APUESTAS CENTRAL</div>
+        <div id="txt-info-mesa" style="font-size: 13px; color: #ccc; margin-bottom: 10px;">¡Es tu turno! Elige una cifra segura para apostar al dado.</div>
+        
+        <div id="controles-jugador-activo" style="display: flex; gap: 10px;">
+            <input type="number" id="input-apuesta" value="10" min="1" style="margin: 0; width: 60%;">
+            <button id="btn-apostar" style="margin: 0; width: 40%;">Apostar [Espacio]</button>
+        </div>
+        <button id="btn-pasar" style="background:#3b3b54; font-size: 12px; padding: 8px; margin-top: 8px; width:100%;">Pasar Turno [Shift]</button>
+        <div id="dado-resultado" class="zona-dados">🎲</div>
+    </div>
+
+    <div id="instrucciones">Moverse: WASD o Flechas del teclado | Mando Analógico | Acciones: Mesa Verde</div>
+
+    <script>
+        // --- 1. VARIABLES DE ESTADO Y JUGADORES ---
+        let miNombre = "";
+        let boteMesa = 0;
+        let indiceTurnoActual = 0; // 0 = Jugador, 1 = Bot 1, 2 = Bot 2
+        let juegoTerminado = false;
+
+        let escena, camara, renderizador;
+        let miAvatar;
+        let mesaCasino;
+        let listaJugadores = []; // Contiene los objetos de datos y mallas 3D
+
+        let teclas = { w: false, a: false, s: false, d: false };
+        let velocidad = 0.14;
+        let mandoConectado = false;
+        let botonMandoBloqueado = false;
+
+        const carasDado = ["🎲", "⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
+
+        // --- 2. GENERACIÓN DEL MUNDO GRÁFICO 3D (THREE.JS) ---
+        function inicializarMundo3D() {
+            escena = new THREE.Scene();
+            escena.background = new THREE.Color(0x0b0b16);
+            escena.fog = new THREE.FogExp2(0x0b0b16, 0.05);
+
+            camara = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            renderizador = new THREE.WebGLRenderer({ antialias: true });
+            renderizador.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderizador.domElement);
+
+            // Luces estéticas de neón de casino
+            const luzAmbiental = new THREE.AmbientLight(0xffffff, 0.5);
+            escena.add(luzAmbiental);
+
+            const luzFoco = new THREE.DirectionalLight(0xff3366, 0.8);
+            luzFoco.position.set(5, 15, 5);
+            escena.add(luzFoco);
+
+            // Rejilla del piso de la sala
+            const texturSuelo = new THREE.GridHelper(100, 50, 0x2d2d44, 0x1a1a3a);
+            texturSuelo.position.y = -0.5;
+            escena.add(texturSuelo);
+
+            // Mesa cilíndrica de juego (Tapete verde)
+            const geometriaMesa = new THREE.CylinderGeometry(3, 3, 0.8, 32);
+            const materialMesa = new THREE.MeshPhongMaterial({ color: 0x0a5c36, roughness: 0.9 });
+            mesaCasino = new THREE.Mesh(geometriaMesa, materialMesa);
+            mesaCasino.position.set(0, -0.1, 0);
+            escena.add(mesaCasino);
+
+            // Moldura externa de madera de la mesa
+            const geometriaBorde = new THREE.CylinderGeometry(3.15, 3.15, 0.9, 32, 1, true);
+            const materialBorde = new THREE.MeshPhongMaterial({ color: 0x4a2c11 });
+            const borde = new THREE.Mesh(geometriaBorde, materialBorde);
+            mesaCasino.add(borde);
+
+            // CONFIGURAR JUGADORES (TÚ + BOTS)
+            const geoCubo = new THREE.BoxGeometry(1, 1.5, 1);
+
+            // 1. Tu avatar (Cubo Rosa)
+            const matPropio = new THREE.MeshPhongMaterial({ color: 0xff3366 });
+            miAvatar = new THREE.Mesh(geoCubo, matPropio);
+            miAvatar.position.set(0, 0.5, 7); // Empiezas retirado de la mesa
+            escena.add(miAvatar);
+
+            // Añadir visor/frente metálico al avatar propio
+            const geoVisor = new THREE.BoxGeometry(0.8, 0.2, 0.2);
+            const matVisor = new THREE.MeshBasicMaterial({ color: 0x00ffcc });
+            const visor = new THREE.Mesh(geoVisor, matVisor);
+            visor.position.set(0, 0.4, -0.51);
+            miAvatar.add(visor);
+
+            // 2. Malla Bot Alfredo (Cubo Cian)
+            const matBot1 = new THREE.MeshPhongMaterial({ color: 0x00ffcc });
+            const mallaBot1 = new THREE.Mesh(geoCubo, matBot1);
+            mallaBot1.position.set(-6, 0.5, -2);
+            escena.add(mallaBot1);
+
+            // 3. Malla Bot Carlota (Cubo Amarillo)
+            const matBot2 = new THREE.MeshPhongMaterial({ color: 0xffcc00 });
+            const mallaBot2 = new THREE.Mesh(geoCubo, matBot2);
+            mallaBot2.position.set(6, 0.5, -2);
+            escena.add(mallaBot2);
+
+            // Registro estructurado en el array del motor
+            listaJugadores = [
+                { nombre: miNombre, fichas: 100, esBot: false, malla: miAvatar, objetivoX: 0, objetivoZ: 7 },
+                { nombre: "Bot Alfredo", fichas: 100, esBot: true, malla: mallaBot1, objetivoX: -6, objetivoZ: -2 },
+                { nombre: "Bot Carlota", fichas: 100, esBot: true, malla: mallaBot2, objetivoX: 6, objetivoZ: -2 }
+            ];
+
+            window.addEventListener('resize', enRedimensionar);
+            bucleAnimacion3D();
+            actualizarHUD();
+        }
+
+        function enRedimensionar() {
+            camara.aspect = window.innerWidth / window.innerHeight;
+            camara.updateProjectionMatrix();
+            renderizador.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // --- 3. LÓGICA DE MOVIMIENTO, CÁMARA E IA DE LOS BOTS ---
+        function actualizarFisicasYMovimiento() {
+            if (juegoTerminado) return;
+
+            // Movimiento del usuario real (Teclado)
+            if (listaJugadores[0].fichas > 0) {
+                if (teclas.w || teclas.ArrowUp) miAvatar.translateZ(-velocidad);
